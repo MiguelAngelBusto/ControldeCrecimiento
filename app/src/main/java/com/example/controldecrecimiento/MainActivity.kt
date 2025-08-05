@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+
 
 
 
@@ -37,9 +40,27 @@ class MainActivity : ComponentActivity() {
         setContent {
             ControlDeCrecimientoTheme {
                 var montoActual by remember { mutableStateOf(montoGuardado) }
+                // NUEVO ESTADO: controla qué pantalla se muestra
+                var mostrarHistorico by remember { mutableStateOf(false) }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    if (montoActual == 0f) {
+                    if (mostrarHistorico) {
+                        // 1. Leemos el historial como una cadena de texto
+                        val historialGuardadoString = prefs.getString("historial_ganancias", "") ?: ""
+
+                        // 2. Lo dividimos en una lista, manejando el caso de que esté vacío
+                        val listaHistorial = if (historialGuardadoString.isEmpty()) {
+                            emptyList()
+                        } else {
+                            historialGuardadoString.split(";")
+                        }
+
+                        HistoricoScreen(
+                            historialGanancias = listaHistorial, // Pasamos la lista ordenada
+                            onVolver = { mostrarHistorico = false },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }  else if (montoActual == 0f) {
                         MontoInicialScreen(
                             onMontoGuardado = { monto ->
                                 prefs.edit().putFloat("monto_inicial", monto).apply()
@@ -48,23 +69,42 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.padding(innerPadding)
                         )
                     } else {
-                        // AQUÍ ESTÁ EL CAMBIO: agregamos el callback onReiniciar
+                        // Leemos el historial como una cadena de texto
+                        val historialGuardadoString = prefs.getString("historial_ganancias", "") ?: ""
+                        val listaHistorial = if (historialGuardadoString.isEmpty()) {
+                            emptyList()
+                        } else {
+                            historialGuardadoString.split(";")
+                        }
+                        // Calculamos el tamaño de la lista
+                        val cantidadDeGanancias = listaHistorial.size
+
                         SeguimientoDiarioScreen(
                             montoActual = montoActual,
+                            cantidadGanancias = cantidadDeGanancias, // <-- NUEVO: Pasamos la cantidad
                             onMontoActualizado = { nuevoMonto ->
+                                val gananciaDiaria = nuevoMonto - montoActual
+
+                                val historialActualizado = if (historialGuardadoString.isEmpty()) {
+                                    "Ganancia: $${"%.2f".format(gananciaDiaria)}"
+                                } else {
+                                    "$historialGuardadoString;Ganancia: $${"%.2f".format(gananciaDiaria)}"
+                                }
+
+                                prefs.edit().putString("historial_ganancias", historialActualizado).apply()
                                 prefs.edit().putFloat("monto_inicial", nuevoMonto).apply()
                                 montoActual = nuevoMonto
                             },
                             onReiniciar = {
-                                // Borramos el valor en SharedPreferences
                                 prefs.edit().remove("monto_inicial").apply()
-                                // Ponemos el monto en 0 para que Compose cambie la pantalla
+                                prefs.edit().remove("historial_ganancias").apply()
                                 montoActual = 0f
                             },
+                            onMostrarHistorico = { mostrarHistorico = true },
                             modifier = Modifier.padding(innerPadding)
                         )
                     }
-                }
+                    }
             }
         }
     }
@@ -118,8 +158,10 @@ fun MontoInicialScreen(onMontoGuardado: (Float) -> Unit, modifier: Modifier = Mo
 @Composable
 fun SeguimientoDiarioScreen(
     montoActual: Float,
+    cantidadGanancias: Int,
     onMontoActualizado: (Float) -> Unit,
     onReiniciar: () -> Unit,
+    onMostrarHistorico: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     // Estado para controlar si se muestra el diálogo de reinicio
@@ -128,44 +170,76 @@ fun SeguimientoDiarioScreen(
     // Calcula el 1% de ganancia diaria
     val gananciaDiaria = montoActual * 0.01f
 
-    Column(
+    // Usamos un Box como contenedor principal para poder superponer elementos
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(16.dp)
     ) {
         Text(
-            text = "Monto Actual:",
-            style = MaterialTheme.typography.headlineSmall
+            text = "Cantidad de veces: $cantidadGanancias",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.align(Alignment.TopStart) // <-- Posicionamiento arriba a la izquierda
         )
-        Text(
-            text = "$${"%.2f".format(montoActual)}",
-            style = MaterialTheme.typography.displayMedium
-        )
-
-        Text(
-            text = "Ganancia de hoy: $${"%.2f".format(gananciaDiaria)}",
-            style = MaterialTheme.typography.bodyLarge
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-            onClick = {
-                val nuevoMonto = montoActual * 1.01f
-                onMontoActualizado(nuevoMonto)
-            }
+        // Contenido principal de la pantalla, centrado
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.Center), // Centramos este Column en el Box
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Aplicar ganancia de hoy")
+
+            Text(
+                text = "Monto Actual:",
+                style = MaterialTheme.typography.headlineSmall
+            )
+            Text(
+                text = "$${"%.2f".format(montoActual)}",
+                style = MaterialTheme.typography.displayMedium
+            )
+
+            Text(
+                text = "Ganancia de hoy: $${"%.2f".format(gananciaDiaria)}",
+                style = MaterialTheme.typography.bodyLarge
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = {
+                    val nuevoMonto = montoActual * 1.01f
+                    onMontoActualizado(nuevoMonto)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Aplicar ganancia de hoy")
+            }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = { mostrarDialogoDeReinicio = true } // <-- Cambio: ahora solo muestra el diálogo
+        // Fila de botones en la parte inferior
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter), // Alineamos esta fila en la parte inferior del Box
+            horizontalArrangement = Arrangement.SpaceAround // Distribuye los botones con espacio alrededor
         ) {
-            Text("Reiniciar")
+            Button(
+                onClick = { mostrarDialogoDeReinicio = true },
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
+            ) {
+                Text("Reiniciar")
+            }
+
+            Button(
+                onClick = onMostrarHistorico,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 8.dp)
+            ) {
+                Text("Histórico")
+            }
         }
     }
 
@@ -202,5 +276,47 @@ fun SeguimientoDiarioScreen(
                 }
             }
         )
+    }
+}
+@Composable
+fun HistoricoScreen(
+    historialGanancias: List<String>,
+    onVolver: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Historial de Ganancias",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // LazyColumn es un Composable que maneja listas eficientemente
+        LazyColumn(
+            modifier = Modifier.weight(1f)
+        ) {
+            items(historialGanancias) { ganancia -> // <--- YA NO NECESITAMOS .toList()
+                Text(
+                    text = ganancia,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = onVolver,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Volver")
+        }
     }
 }
