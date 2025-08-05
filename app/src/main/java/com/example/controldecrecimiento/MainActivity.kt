@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 
 
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,37 +32,34 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-
-        // Creamos una variable de estado que va a guardar el monto actual de la app.
-        // Su valor inicial es el que está guardado en SharedPreferences.
         val montoGuardado = prefs.getFloat("monto_inicial", 0f)
 
         setContent {
             ControlDeCrecimientoTheme {
-                // El estado principal de la aplicación.
                 var montoActual by remember { mutableStateOf(montoGuardado) }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     if (montoActual == 0f) {
-                        // Si el monto es 0, significa que es la primera vez.
                         MontoInicialScreen(
                             onMontoGuardado = { monto ->
-                                // Guardamos el monto en SharedPreferences
                                 prefs.edit().putFloat("monto_inicial", monto).apply()
-                                // Y actualizamos nuestra variable de estado principal
                                 montoActual = monto
                             },
                             modifier = Modifier.padding(innerPadding)
                         )
                     } else {
-                        // Si el monto es > 0, mostramos la pantalla de seguimiento.
+                        // AQUÍ ESTÁ EL CAMBIO: agregamos el callback onReiniciar
                         SeguimientoDiarioScreen(
                             montoActual = montoActual,
                             onMontoActualizado = { nuevoMonto ->
-                                // Guardamos el nuevo monto en SharedPreferences
                                 prefs.edit().putFloat("monto_inicial", nuevoMonto).apply()
-                                // Y actualizamos nuestra variable de estado, lo que refresca la UI
                                 montoActual = nuevoMonto
+                            },
+                            onReiniciar = {
+                                // Borramos el valor en SharedPreferences
+                                prefs.edit().remove("monto_inicial").apply()
+                                // Ponemos el monto en 0 para que Compose cambie la pantalla
+                                montoActual = 0f
                             },
                             modifier = Modifier.padding(innerPadding)
                         )
@@ -116,11 +114,16 @@ fun MontoInicialScreen(onMontoGuardado: (Float) -> Unit, modifier: Modifier = Mo
     }
 }
 
+// Modificamos la firma para que acepte un callback para reiniciar
 @Composable
-fun SeguimientoDiarioScreen(montoActual: Float, onMontoActualizado: (Float) -> Unit, modifier: Modifier = Modifier) {
-    // No necesitamos crear un nuevo estado aquí.
-    // El valor que usamos (montoActual) ya viene como parámetro desde MainActivity
-    // y es una variable de estado allí.
+fun SeguimientoDiarioScreen(
+    montoActual: Float,
+    onMontoActualizado: (Float) -> Unit,
+    onReiniciar: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Estado para controlar si se muestra el diálogo de reinicio
+    var mostrarDialogoDeReinicio by remember { mutableStateOf(false) }
 
     // Calcula el 1% de ganancia diaria
     val gananciaDiaria = montoActual * 0.01f
@@ -137,7 +140,7 @@ fun SeguimientoDiarioScreen(montoActual: Float, onMontoActualizado: (Float) -> U
             style = MaterialTheme.typography.headlineSmall
         )
         Text(
-            text = "$${"%.2f".format(montoActual)}", // Usamos el parámetro que recibimos
+            text = "$${"%.2f".format(montoActual)}",
             style = MaterialTheme.typography.displayMedium
         )
 
@@ -145,6 +148,8 @@ fun SeguimientoDiarioScreen(montoActual: Float, onMontoActualizado: (Float) -> U
             text = "Ganancia de hoy: $${"%.2f".format(gananciaDiaria)}",
             style = MaterialTheme.typography.bodyLarge
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = {
@@ -154,5 +159,48 @@ fun SeguimientoDiarioScreen(montoActual: Float, onMontoActualizado: (Float) -> U
         ) {
             Text("Aplicar ganancia de hoy")
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = { mostrarDialogoDeReinicio = true } // <-- Cambio: ahora solo muestra el diálogo
+        ) {
+            Text("Reiniciar")
+        }
+    }
+
+    // Aquí está el nuevo AlertDialog
+    if (mostrarDialogoDeReinicio) {
+        AlertDialog(
+            onDismissRequest = {
+                // Se llama si el usuario hace clic fuera del diálogo
+                mostrarDialogoDeReinicio = false
+            },
+            title = {
+                Text(text = "Confirmar reinicio")
+            },
+            text = {
+                Text("¿Está seguro de que desea realizar el reinicio? Todos los datos se perderán.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onReiniciar() // Llama a la lógica de reinicio
+                        mostrarDialogoDeReinicio = false // Oculta el diálogo
+                    }
+                ) {
+                    Text("Sí")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        mostrarDialogoDeReinicio = false // Solo oculta el diálogo
+                    }
+                ) {
+                    Text("No")
+                }
+            }
+        )
     }
 }
